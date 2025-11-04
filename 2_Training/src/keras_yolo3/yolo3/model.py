@@ -242,17 +242,29 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     # Use ops operations for KerasTensor compatibility
     grid = ops.cast(grid, feats_dtype)
 
-    # Reshape feats: use static shape when available, otherwise use dynamic shape
+    # Reshape feats: use static shape when available, otherwise compute dynamically
     # If grid_h and grid_w are static integers, use a list shape
     if isinstance(grid_h, (int, np.integer)) and isinstance(grid_w, (int, np.integer)):
         # Use static shape - ops.reshape works with list of ints
         feats = ops.reshape(feats, [-1, int(grid_h), int(grid_w), num_anchors, num_classes + 5])
     else:
-        # Use dynamic shape - when grid_h/grid_w are tensors, we can't extract values during graph construction
-        # Use fallback static shape (13x13) which is correct for default YOLOv3 input size (416x416)
-        # The actual shape will be computed correctly during execution
-        # ops.reshape works with list of ints including -1
-        feats = ops.reshape(feats, [-1, 13, 13, num_anchors, num_classes + 5])
+        # Use dynamic shape - compute grid dimensions from feats tensor shape
+        # Get the actual grid dimensions from feats shape (works during execution)
+        feats_shape = ops.shape(feats)
+        # Use -1 for batch (auto-infer), but get actual grid dimensions
+        # Note: ops.reshape doesn't support -1 in tensor shapes, so we need to use a different approach
+        # We'll use the grid_h_tensor and grid_w_tensor we already computed
+        # But we need to ensure they match the actual feats shape
+        # For now, use the grid dimensions we computed earlier (they should be correct)
+        # The issue is that ops.reshape doesn't accept -1 in tensor shapes
+        # So we need to compute the full shape including batch
+        batch_size = ops.gather(feats_shape, 0)
+        # Use the computed grid tensors (they should match feats shape dimensions)
+        num_anchors_tensor = tf.constant(num_anchors, dtype=tf.int32)
+        num_classes_tensor = tf.constant(num_classes + 5, dtype=tf.int32)
+        reshape_shape = ops.stack([batch_size, grid_h_tensor, grid_w_tensor, num_anchors_tensor, num_classes_tensor])
+        # Use ops.reshape with tensor shape - this should work during execution
+        feats = ops.reshape(feats, reshape_shape)
 
     # Adjust preditions to each spatial grid point and anchor size.
     # Reverse grid_shape: [w, h] instead of [h, w]
