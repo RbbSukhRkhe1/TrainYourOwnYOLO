@@ -145,33 +145,44 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     # Use shape attribute which is available on KerasTensors
     from tensorflow.keras import ops
     
+    # Try to get static shape first (works during graph construction)
+    grid_h = None
+    grid_w = None
+    
     if hasattr(feats, 'shape') and feats.shape is not None and len(feats.shape) >= 3:
-        # Try to get static shape first (works during graph construction)
-        shape_list = feats.shape.as_list() if hasattr(feats.shape, 'as_list') else list(feats.shape)
-        if shape_list[1] is not None and shape_list[2] is not None and isinstance(shape_list[1], int) and isinstance(shape_list[2], int):
-            # Static shape available - both are integers
-            grid_h = shape_list[1]
-            grid_w = shape_list[2]
-            grid_shape = tf.constant([grid_h, grid_w], dtype=tf.int32)
-        else:
-            # Dynamic shape - use ops.shape which works with KerasTensors
+        try:
+            shape_list = feats.shape.as_list() if hasattr(feats.shape, 'as_list') else list(feats.shape)
+            if (len(shape_list) >= 3 and 
+                shape_list[1] is not None and shape_list[2] is not None and 
+                isinstance(shape_list[1], int) and isinstance(shape_list[2], int)):
+                # Static shape available - both are integers
+                grid_h = shape_list[1]
+                grid_w = shape_list[2]
+        except (AttributeError, IndexError, TypeError):
+            pass
+    
+    # If static shape not available, use ops.shape (works with KerasTensors)
+    if grid_h is None or grid_w is None:
+        try:
             shape_tensor = ops.shape(feats)
-            grid_h = shape_tensor[1]
-            grid_w = shape_tensor[2]
-            grid_shape = tf.stack([grid_h, grid_w])
+            # Extract dimensions using indexing that works with tensors
+            grid_h = tf.cast(shape_tensor[1], tf.int32)
+            grid_w = tf.cast(shape_tensor[2], tf.int32)
+        except (ValueError, TypeError, AttributeError):
+            # Last resort: compute from input_shape
+            if isinstance(input_shape, tf.Tensor):
+                grid_shape_fallback = tf.cast(input_shape / 32, tf.int32)
+                grid_h = grid_shape_fallback[0]
+                grid_w = grid_shape_fallback[1]
+            else:
+                grid_h = input_shape[0] // 32
+                grid_w = input_shape[1] // 32
+    
+    # Create grid_shape tensor
+    if isinstance(grid_h, (int, np.integer)) and isinstance(grid_w, (int, np.integer)):
+        grid_shape = tf.constant([grid_h, grid_w], dtype=tf.int32)
     else:
-        # Fallback: compute from input_shape (approximate, will be corrected during execution)
-        # For YOLOv3, grid sizes are input_shape / [32, 16, 8] for the 3 layers
-        if isinstance(input_shape, tf.Tensor):
-            # Use a reasonable default that will be refined during execution
-            grid_shape = tf.cast(input_shape / 32, tf.int32)
-            grid_h = grid_shape[0]
-            grid_w = grid_shape[1]
-        else:
-            # Static computation
-            grid_h = input_shape[0] // 32
-            grid_w = input_shape[1] // 32
-            grid_shape = tf.constant([grid_h, grid_w], dtype=tf.int32)
+        grid_shape = tf.stack([tf.cast(grid_h, tf.int32), tf.cast(grid_w, tf.int32)])
     
     # Extract grid dimensions for use in tile operations
     # Ensure we use tensor operations, not Python lists with mixed types
