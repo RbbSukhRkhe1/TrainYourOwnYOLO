@@ -182,7 +182,7 @@ def create_tiny_model(
 
 
 def data_generator(annotation_lines, batch_size, input_shape, anchors, num_classes):
-    """data generator for fit_generator"""
+    """data generator for fit"""
     n = len(annotation_lines)
     i = 0
     while True:

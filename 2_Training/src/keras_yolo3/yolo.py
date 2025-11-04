@@ -15,11 +15,8 @@ from PIL import Image, ImageFont, ImageDraw
 from .yolo3.model import yolo_eval, yolo_body, tiny_yolo_body
 from .yolo3.utils import letterbox_image
 import os
-from tensorflow.keras.utils import multi_gpu_model
-import tensorflow.compat.v1 as tf
-import tensorflow.python.keras.backend as K
-
-tf.disable_eager_execution()
+import tensorflow as tf
+from tensorflow.keras import backend as K
 
 
 class YOLO(object):
@@ -45,7 +42,6 @@ class YOLO(object):
         self.__dict__.update(kwargs)  # and update with user overrides
         self.class_names = self._get_class()
         self.anchors = self._get_anchors()
-        self.sess = K.get_session()
         self.boxes, self.scores, self.classes = self.generate()
 
     def _get_class(self):
@@ -122,14 +118,14 @@ class YOLO(object):
             np.random.seed(None)  # Reset seed to default.
 
         # Generate output tensor targets for filtered bounding boxes.
-        self.input_image_shape = K.placeholder(shape=(2,))
-        if self.gpu_num >= 2:
-            self.yolo_model = multi_gpu_model(self.yolo_model, gpus=self.gpu_num)
+        # Note: In eager execution, we compute these dynamically in detect_image
+        # These are placeholders and won't be used directly
+        dummy_shape = tf.constant([416, 416], dtype=tf.float32)
         boxes, scores, classes = yolo_eval(
             self.yolo_model.output,
             self.anchors,
             len(self.class_names),
-            self.input_image_shape,
+            dummy_shape,  # placeholder, actual shape computed in detect_image
             score_threshold=self.score,
             iou_threshold=self.iou,
         )
@@ -142,26 +138,46 @@ class YOLO(object):
             assert self.model_image_size[0] % 32 == 0, "Multiples of 32 required"
             assert self.model_image_size[1] % 32 == 0, "Multiples of 32 required"
             boxed_image = letterbox_image(image, tuple(reversed(self.model_image_size)))
+            input_shape = tf.constant(self.model_image_size, dtype=tf.float32)
         else:
             new_image_size = (
                 image.width - (image.width % 32),
                 image.height - (image.height % 32),
             )
             boxed_image = letterbox_image(image, new_image_size)
+            input_shape = tf.constant([new_image_size[1], new_image_size[0]], dtype=tf.float32)
+        
         image_data = np.array(boxed_image, dtype="float32")
         if show_stats:
             print(image_data.shape)
         image_data /= 255.0
         image_data = np.expand_dims(image_data, 0)  # Add batch dimension.
 
-        out_boxes, out_scores, out_classes = self.sess.run(
-            [self.boxes, self.scores, self.classes],
-            feed_dict={
-                self.yolo_model.input: image_data,
-                self.input_image_shape: [image.size[1], image.size[0]],
-                K.learning_phase(): 0,
-            },
+        # Get predictions using eager execution
+        model_outputs = self.yolo_model(image_data, training=False)
+        
+        # YOLO models return list of tensors [y1, y2, y3] for full YOLO or [y1, y2] for tiny
+        # Ensure model_outputs is a list (in case it's a tuple or single tensor)
+        if isinstance(model_outputs, tuple):
+            model_outputs = list(model_outputs)
+        elif not isinstance(model_outputs, list):
+            model_outputs = [model_outputs]
+        
+        # Re-evaluate boxes with correct image shape
+        image_shape_tensor = tf.constant([image.size[1], image.size[0]], dtype=tf.float32)
+        boxes, scores, classes = yolo_eval(
+            model_outputs,
+            self.anchors,
+            len(self.class_names),
+            image_shape_tensor,
+            score_threshold=self.score,
+            iou_threshold=self.iou,
         )
+        
+        # Convert tensors to numpy arrays
+        out_boxes = boxes.numpy()
+        out_scores = scores.numpy()
+        out_classes = classes.numpy()
         if show_stats:
             print("Found {} boxes for {}".format(len(out_boxes), "img"))
         out_prediction = []
@@ -179,7 +195,12 @@ class YOLO(object):
 
             label = "{} {:.2f}".format(predicted_class, score)
             draw = ImageDraw.Draw(image)
-            label_size = draw.textsize(label, font)
+            # textsize is deprecated in Pillow 10.0.0+, use textbbox instead
+            try:
+                bbox = draw.textbbox((0, 0), label, font=font)
+                label_size = (bbox[2] - bbox[0], bbox[3] - bbox[1])
+            except AttributeError:
+                label_size = draw.textsize(label, font)
 
             top, left, bottom, right = box
             top = max(0, np.floor(top + 0.5).astype("int32"))
@@ -222,7 +243,8 @@ class YOLO(object):
         return out_prediction, image
 
     def close_session(self):
-        self.sess.close()
+        # No session to close in eager execution
+        pass
 
 
 def detect_video(yolo, video_path, output_path=""):

@@ -457,25 +457,54 @@ def yolo_loss(args, anchors, num_classes, ignore_thresh=0.5, print_loss=False):
         box_loss_scale = 2 - y_true[l][..., 2:3] * y_true[l][..., 3:4]
 
         # Find ignore mask, iterate over each of batch.
-        ignore_mask = tf.TensorArray(K.dtype(y_true[0]), size=1, dynamic_size=True)
+        # For TensorFlow 2.x, use a simpler approach with tf.map_fn
         object_mask_bool = K.cast(object_mask, "bool")
-
-        def loop_body(b, ignore_mask):
+        
+        # Get batch size from pred_box
+        pred_shape = K.shape(pred_box)
+        batch_size = pred_shape[0]
+        
+        def compute_ignore_mask(b):
+            """Compute ignore mask for a single batch item"""
+            # Get true boxes for this batch item
             true_box = tf.boolean_mask(
                 y_true[l][b, ..., 0:4], object_mask_bool[b, ..., 0]
             )
-            iou = box_iou(pred_box[b], true_box)
-            best_iou = K.max(iou, axis=-1)
-            ignore_mask = ignore_mask.write(
-                b, K.cast(best_iou < ignore_thresh, K.dtype(true_box))
+            
+            # Get the shape of pred_box for this batch item
+            pred_box_b = pred_box[b]  # shape: (grid_h, grid_w, num_anchors, 4)
+            pred_box_shape = K.shape(pred_box_b)
+            gh = pred_box_shape[0]
+            gw = pred_box_shape[1]
+            na = pred_box_shape[2]
+            
+            # If no true boxes, don't ignore anything
+            if tf.size(true_box) == 0:
+                return tf.zeros([gh, gw, na], dtype=K.dtype(y_true[0]))
+            
+            # Compute IoU for each predicted box
+            # Reshape pred_box to (grid_h * grid_w * num_anchors, 4)
+            pred_boxes_flat = K.reshape(pred_box_b, [-1, 4])
+            
+            # Compute IoU: (grid_h * grid_w * num_anchors, num_true_boxes)
+            iou = box_iou(pred_boxes_flat, true_box)  # Returns (grid_h * grid_w * num_anchors, num_true_boxes)
+            best_iou = K.max(iou, axis=-1)  # (grid_h * grid_w * num_anchors,)
+            
+            # Reshape back to (grid_h, grid_w, num_anchors)
+            best_iou = K.reshape(best_iou, [gh, gw, na])
+            
+            # Return mask: 1 if should ignore (best_iou < threshold), 0 otherwise
+            return K.cast(best_iou < ignore_thresh, K.dtype(y_true[0]))
+        
+        ignore_mask = tf.map_fn(
+            compute_ignore_mask,
+            tf.range(batch_size),
+            fn_output_signature=tf.TensorSpec(
+                shape=[None, None, None],  # [grid_h, grid_w, num_anchors]
+                dtype=K.dtype(y_true[0])
             )
-            return b + 1, ignore_mask
-
-        _, ignore_mask = tf.while_loop(
-            lambda b, *args: b < m, loop_body, [0, ignore_mask]
         )
-        ignore_mask = ignore_mask.stack()
-        ignore_mask = K.expand_dims(ignore_mask, -1)
+        ignore_mask = K.expand_dims(ignore_mask, -1)  # Add last dimension: (batch, grid_h, grid_w, num_anchors, 1)
 
         # K.binary_crossentropy is helpful to avoid exp overflow.
         xy_loss = (
@@ -506,16 +535,15 @@ def yolo_loss(args, anchors, num_classes, ignore_thresh=0.5, print_loss=False):
         class_loss = K.sum(class_loss) / mf
         loss += xy_loss + wh_loss + confidence_loss + class_loss
         if print_loss:
-            loss = tf.Print(
-                loss,
-                [
-                    loss,
-                    xy_loss,
-                    wh_loss,
-                    confidence_loss,
-                    class_loss,
-                    K.sum(ignore_mask),
-                ],
-                message="loss: ",
+            # Use tf.py_function to print in TensorFlow 2.x
+            def print_loss_fn(loss_val, xy, wh, conf, cls, ign):
+                print(f"loss: {loss_val:.4f} xy: {xy:.4f} wh: {wh:.4f} conf: {conf:.4f} cls: {cls:.4f} ignore: {ign:.4f}")
+                return loss_val
+            
+            loss = tf.py_function(
+                print_loss_fn,
+                [loss, xy_loss, wh_loss, confidence_loss, class_loss, K.sum(ignore_mask)],
+                tf.float32
             )
+            loss.set_shape([])  # Ensure shape is preserved
     return loss

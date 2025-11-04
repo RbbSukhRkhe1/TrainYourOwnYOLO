@@ -45,8 +45,9 @@ from keras_yolo3.yolo3.model import (
 from keras_yolo3.yolo3.utils import get_random_data
 from PIL import Image
 from time import time
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 import pickle
+import logging
 
 from Train_Utils import (
     get_classes,
@@ -149,7 +150,7 @@ if __name__ == "__main__":
     FLAGS = parser.parse_args()
 
     if not FLAGS.warnings:
-        tf.logging.set_verbosity(tf.logging.ERROR)
+        logging.getLogger("tensorflow").setLevel(logging.ERROR)
         os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
         warnings.filterwarnings("ignore")
 
@@ -210,7 +211,8 @@ if __name__ == "__main__":
         monitor="val_loss",
         save_weights_only=True,
         save_best_only=True,
-        period=5,
+        # In TF 2.x, save_freq is not needed when save_best_only=True
+        # The model will be saved whenever val_loss improves
     )
     reduce_lr = ReduceLROnPlateau(monitor="val_loss", factor=0.1, patience=3, verbose=1)
     early_stopping = EarlyStopping(
@@ -240,7 +242,7 @@ if __name__ == "__main__":
         frozen_callbacks.append(wandb_callback)
 
     model.compile(
-        optimizer=Adam(lr=1e-3),
+        optimizer=Adam(learning_rate=1e-3),
         loss={
             # use custom yolo_loss Lambda layer.
             "yolo_loss": lambda y_true, y_pred: y_pred
@@ -253,7 +255,7 @@ if __name__ == "__main__":
             num_train, num_val, batch_size
         )
     )
-    history = model.fit_generator(
+    history = model.fit(
         data_generator_wrapper(
             lines[:num_train], batch_size, input_shape, anchors, num_classes
         ),
@@ -279,7 +281,7 @@ if __name__ == "__main__":
     for i in range(len(model.layers)):
         model.layers[i].trainable = True
     model.compile(
-        optimizer=Adam(lr=1e-4), loss={"yolo_loss": lambda y_true, y_pred: y_pred}
+        optimizer=Adam(learning_rate=1e-4), loss={"yolo_loss": lambda y_true, y_pred: y_pred}
     )  # recompile to apply the change
 
     print("Unfreeze all layers.")
@@ -290,7 +292,7 @@ if __name__ == "__main__":
             num_train, num_val, batch_size
         )
     )
-    history = model.fit_generator(
+    history = model.fit(
         data_generator_wrapper(
             lines[:num_train], batch_size, input_shape, anchors, num_classes
         ),

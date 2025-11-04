@@ -127,6 +127,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--box_file",
+        "--box",
         type=str,
         dest="box",
         default=detection_results_file,
@@ -246,30 +247,29 @@ if __name__ == "__main__":
             )
             y_size, x_size, _ = np.array(image).shape
             for single_prediction in prediction:
-                out_df = out_df.append(
-                    pd.DataFrame(
+                new_row = pd.DataFrame(
+                    [
                         [
-                            [
-                                os.path.basename(img_path.rstrip("\n")),
-                                img_path.rstrip("\n"),
-                            ]
-                            + single_prediction
-                            + [x_size, y_size]
-                        ],
-                        columns=[
-                            "image",
-                            "image_path",
-                            "xmin",
-                            "ymin",
-                            "xmax",
-                            "ymax",
-                            "label",
-                            "confidence",
-                            "x_size",
-                            "y_size",
-                        ],
-                    )
+                            os.path.basename(img_path.rstrip("\n")),
+                            img_path.rstrip("\n"),
+                        ]
+                        + single_prediction
+                        + [x_size, y_size]
+                    ],
+                    columns=[
+                        "image",
+                        "image_path",
+                        "xmin",
+                        "ymin",
+                        "xmax",
+                        "ymax",
+                        "label",
+                        "confidence",
+                        "x_size",
+                        "y_size",
+                    ],
                 )
+                out_df = pd.concat([out_df, new_row], ignore_index=True)
         end = timer()
         print(
             "Processed {} images in {:.1f}sec - {:.1f}FPS".format(
