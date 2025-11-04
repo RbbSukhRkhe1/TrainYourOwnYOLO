@@ -249,15 +249,13 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
         feats = ops.reshape(feats, [-1, int(grid_h), int(grid_w), num_anchors, num_classes + 5])
     else:
         # Use dynamic shape - compute grid dimensions from feats tensor shape
-        # Get the actual grid dimensions from feats shape (works during execution)
-        feats_shape = ops.shape(feats)
-        # Use tf.gather (not ops.gather) to extract dimensions from shape tensor
-        batch_size = tf.gather(feats_shape, 0)
+        # During graph construction, batch dimension might be None, so use -1
         # Use the computed grid tensors (they should match feats shape dimensions)
+        batch_dim = tf.constant(-1, dtype=tf.int32)  # Auto-infer batch size
         num_anchors_tensor = tf.constant(num_anchors, dtype=tf.int32)
         num_classes_tensor = tf.constant(num_classes + 5, dtype=tf.int32)
-        reshape_shape = ops.stack([batch_size, grid_h_tensor, grid_w_tensor, num_anchors_tensor, num_classes_tensor])
-        # Use ops.reshape with tensor shape - this should work during execution
+        reshape_shape = ops.stack([batch_dim, grid_h_tensor, grid_w_tensor, num_anchors_tensor, num_classes_tensor])
+        # Use ops.reshape with tensor shape - ops.reshape should handle -1 in tensor shapes during execution
         feats = ops.reshape(feats, reshape_shape)
 
     # Adjust preditions to each spatial grid point and anchor size.
