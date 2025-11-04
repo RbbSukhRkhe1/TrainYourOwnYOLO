@@ -207,7 +207,7 @@ if __name__ == "__main__":
     log_dir_time = os.path.join(log_dir, "{}".format(int(time())))
     logging = TensorBoard(log_dir=log_dir_time)
     checkpoint = ModelCheckpoint(
-        os.path.join(log_dir, "checkpoint.h5"),
+        os.path.join(log_dir, "checkpoint.weights.h5"),
         monitor="val_loss",
         save_weights_only=True,
         save_best_only=True,

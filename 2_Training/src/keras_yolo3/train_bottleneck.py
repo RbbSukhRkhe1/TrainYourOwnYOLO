@@ -39,7 +39,7 @@ def _main():
 
     logging = TensorBoard(log_dir=log_dir)
     checkpoint = ModelCheckpoint(
-        log_dir + "ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5",
+        log_dir + "ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.weights.h5",
         monitor="val_loss",
         save_weights_only=True,
         save_best_only=True,

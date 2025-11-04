@@ -53,7 +53,7 @@ def _main():
     # checkpoint = ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
     #     monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
     checkpoint = ModelCheckpoint(
-        log_dir + "checkpoint.h5",
+        log_dir + "checkpoint.weights.h5",
         monitor="val_loss",
         save_weights_only=True,
         save_best_only=True,
