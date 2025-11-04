@@ -226,7 +226,17 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
         K.stack([grid_h_tensor, 1, 1, 1]),
     )
     grid = K.concatenate([grid_x, grid_y])
-    grid = K.cast(grid, K.dtype(feats))
+    # Get dtype from tensor attribute (works with KerasTensors)
+    # Convert to string if it's a DType object
+    if hasattr(feats, 'dtype'):
+        feats_dtype = feats.dtype
+        if hasattr(feats_dtype, 'name'):
+            feats_dtype = feats_dtype.name
+        elif not isinstance(feats_dtype, str):
+            feats_dtype = str(feats_dtype)
+    else:
+        feats_dtype = 'float32'
+    grid = K.cast(grid, feats_dtype)
 
     feats = K.reshape(
         feats, [-1, grid_h_tensor, grid_w_tensor, num_anchors, num_classes + 5]
@@ -235,13 +245,20 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     # Adjust preditions to each spatial grid point and anchor size.
     # Reverse grid_shape: [w, h] instead of [h, w]
     grid_shape_reversed = tf.stack([grid_w_tensor, grid_h_tensor])
+    # Get dtype from tensor attribute (works with KerasTensors)
+    # Reuse the dtype we already computed above
     box_xy = (K.sigmoid(feats[..., :2]) + grid) / K.cast(
-        grid_shape_reversed, K.dtype(feats)
+        grid_shape_reversed, feats_dtype
     )
+    # Handle input_shape reversal safely
+    if isinstance(input_shape, tf.Tensor):
+        input_shape_reversed = tf.reverse(input_shape, [0])
+    else:
+        input_shape_reversed = input_shape[::-1]
     box_wh = (
         K.exp(feats[..., 2:4])
         * anchors_tensor
-        / K.cast(input_shape[::-1], K.dtype(feats))
+        / K.cast(input_shape_reversed, feats_dtype)
     )
     box_confidence = K.sigmoid(feats[..., 4:5])
     box_class_probs = K.sigmoid(feats[..., 5:])
