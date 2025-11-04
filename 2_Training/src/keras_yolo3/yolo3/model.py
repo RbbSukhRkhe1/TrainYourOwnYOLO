@@ -247,13 +247,13 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
         # Use static shape - ops.reshape works with list of ints
         feats = ops.reshape(feats, [-1, int(grid_h), int(grid_w), num_anchors, num_classes + 5])
     else:
-        # Use dynamic shape - construct tensor shape with all values as tensors
-        feats_shape = ops.shape(feats)
-        batch_size = tf.gather(feats_shape, 0)
+        # Use dynamic shape - use tf.reshape which handles -1 in tensor shapes better
+        # Use -1 for batch dimension (auto-infer) instead of extracting from shape
+        batch_dim = tf.constant(-1, dtype=tf.int32)
         num_anchors_tensor = tf.constant(num_anchors, dtype=tf.int32)
         num_classes_tensor = tf.constant(num_classes + 5, dtype=tf.int32)
-        reshape_shape = ops.stack([batch_size, grid_h_tensor, grid_w_tensor, num_anchors_tensor, num_classes_tensor])
-        feats = ops.reshape(feats, reshape_shape)
+        reshape_shape = tf.stack([batch_dim, grid_h_tensor, grid_w_tensor, num_anchors_tensor, num_classes_tensor])
+        feats = tf.reshape(feats, reshape_shape)
 
     # Adjust preditions to each spatial grid point and anchor size.
     # Reverse grid_shape: [w, h] instead of [h, w]
