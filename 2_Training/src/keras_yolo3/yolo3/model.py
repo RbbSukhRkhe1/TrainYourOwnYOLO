@@ -478,23 +478,30 @@ def yolo_loss(args, anchors, num_classes, ignore_thresh=0.5, print_loss=False):
             gw = pred_box_shape[1]
             na = pred_box_shape[2]
             
-            # If no true boxes, don't ignore anything
-            if tf.size(true_box) == 0:
+            # Check if there are any true boxes using TensorFlow operations
+            num_true_boxes = tf.shape(true_box)[0]
+            has_boxes = tf.greater(num_true_boxes, 0)
+            
+            # If no true boxes, return zeros; otherwise compute IoU
+            def compute_with_boxes():
+                # Reshape pred_box to (grid_h * grid_w * num_anchors, 4)
+                pred_boxes_flat = K.reshape(pred_box_b, [-1, 4])
+                
+                # Compute IoU: (grid_h * grid_w * num_anchors, num_true_boxes)
+                iou = box_iou(pred_boxes_flat, true_box)  # Returns (grid_h * grid_w * num_anchors, num_true_boxes)
+                best_iou = K.max(iou, axis=-1)  # (grid_h * grid_w * num_anchors,)
+                
+                # Reshape back to (grid_h, grid_w, num_anchors)
+                best_iou = K.reshape(best_iou, [gh, gw, na])
+                
+                # Return mask: 1 if should ignore (best_iou < threshold), 0 otherwise
+                return K.cast(best_iou < ignore_thresh, K.dtype(y_true[0]))
+            
+            def return_zeros():
                 return tf.zeros([gh, gw, na], dtype=K.dtype(y_true[0]))
             
-            # Compute IoU for each predicted box
-            # Reshape pred_box to (grid_h * grid_w * num_anchors, 4)
-            pred_boxes_flat = K.reshape(pred_box_b, [-1, 4])
-            
-            # Compute IoU: (grid_h * grid_w * num_anchors, num_true_boxes)
-            iou = box_iou(pred_boxes_flat, true_box)  # Returns (grid_h * grid_w * num_anchors, num_true_boxes)
-            best_iou = K.max(iou, axis=-1)  # (grid_h * grid_w * num_anchors,)
-            
-            # Reshape back to (grid_h, grid_w, num_anchors)
-            best_iou = K.reshape(best_iou, [gh, gw, na])
-            
-            # Return mask: 1 if should ignore (best_iou < threshold), 0 otherwise
-            return K.cast(best_iou < ignore_thresh, K.dtype(y_true[0]))
+            # Use tf.cond for conditional execution
+            return tf.cond(has_boxes, compute_with_boxes, return_zeros)
         
         ignore_mask = tf.map_fn(
             compute_ignore_mask,
