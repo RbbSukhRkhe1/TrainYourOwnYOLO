@@ -251,15 +251,17 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     else:
         # Use dynamic shape - when grid_h/grid_w are tensors, we need to defer reshape until execution
         # Use a Lambda layer to perform the reshape during execution with actual tensor values
+        # Compute grid dimensions from the input tensor itself inside the Lambda
         def dynamic_reshape(x):
-            """Reshape feats using dynamic grid dimensions during execution."""
+            """Reshape feats using dynamic grid dimensions computed from input tensor."""
             feats_shape = tf.shape(x)
             batch_size = feats_shape[0]
-            # grid_h_tensor and grid_w_tensor are already computed above
-            # They should match the actual feats dimensions
+            # Get grid dimensions from the actual feats tensor shape (not from outer scope)
+            grid_h_val = feats_shape[1]  # Height dimension
+            grid_w_val = feats_shape[2]  # Width dimension
             num_anchors_tensor = tf.constant(num_anchors, dtype=tf.int32)
             num_classes_tensor = tf.constant(num_classes + 5, dtype=tf.int32)
-            reshape_shape = tf.stack([batch_size, grid_h_tensor, grid_w_tensor, num_anchors_tensor, num_classes_tensor])
+            reshape_shape = tf.stack([batch_size, grid_h_val, grid_w_val, num_anchors_tensor, num_classes_tensor])
             return tf.reshape(x, reshape_shape)
         
         feats = Lambda(dynamic_reshape)(feats)
