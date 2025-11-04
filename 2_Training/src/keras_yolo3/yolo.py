@@ -60,7 +60,24 @@ class YOLO(object):
 
     def generate(self):
         model_path = os.path.expanduser(self.model_path)
-        assert model_path.endswith(".h5"), "Keras model or weights must be a .h5 file."
+        # Allow both .h5 and .weights.h5 extensions
+        assert model_path.endswith(".h5") or model_path.endswith(".weights.h5"), \
+            "Keras model or weights must be a .h5 or .weights.h5 file."
+
+        # Check for .weights.h5 first (TensorFlow 2.10+ format), fallback to .h5 for backward compatibility
+        if not os.path.isfile(model_path):
+            # Try alternate extension if file doesn't exist
+            base_path = model_path.replace(".weights.h5", "").replace(".h5", "")
+            weights_path = base_path + ".weights.h5"
+            h5_path = base_path + ".h5"
+            
+            # Prefer .weights.h5 (TensorFlow 2.10+ format), then .h5
+            if os.path.isfile(weights_path):
+                model_path = weights_path
+                self.model_path = model_path
+            elif os.path.isfile(h5_path):
+                model_path = h5_path
+                self.model_path = model_path
 
         # Load model, or construct model and load weights.
         start = timer()
@@ -80,7 +97,7 @@ class YOLO(object):
                 )
             )
             self.yolo_model.load_weights(
-                self.model_path
+                model_path
             )  # make sure model, anchors and classes match
         else:
             assert self.yolo_model.layers[-1].output_shape[-1] == num_anchors / len(
