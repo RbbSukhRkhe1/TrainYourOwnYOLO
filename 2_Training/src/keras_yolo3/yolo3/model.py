@@ -139,12 +139,12 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     """Convert final layer features to bounding box parameters."""
     num_anchors = len(anchors)
     # Reshape to batch, height, width, num_anchors, box_params.
-    anchors_tensor = K.reshape(K.constant(anchors), [1, 1, 1, num_anchors, 2])
-
     # Get grid_shape - handle KerasTensors during graph construction
     # During model initialization, KerasTensors don't have fully defined shapes
     # We need to compute grid_shape from input_shape or use a placeholder
     from tensorflow.keras import ops
+    # Use ops.reshape for KerasTensor compatibility
+    anchors_tensor = ops.reshape(K.constant(anchors), [1, 1, 1, num_anchors, 2])
     
     # Try to get static shape first (works during graph construction if shape is known)
     grid_h = None
@@ -217,15 +217,18 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     else:
         grid_w_tensor = tf.cast(grid_w, tf.int32)
     
-    grid_y = K.tile(
-        K.reshape(K.arange(0, stop=grid_h_tensor), [-1, 1, 1, 1]),
-        K.stack([1, grid_w_tensor, 1, 1]),
+    # Use ops operations for KerasTensor compatibility
+    arange_h = K.arange(0, stop=grid_h_tensor)  # Creates new tensor, OK
+    arange_w = K.arange(0, stop=grid_w_tensor)  # Creates new tensor, OK
+    grid_y = ops.tile(
+        ops.reshape(arange_h, [-1, 1, 1, 1]),
+        ops.stack([1, grid_w_tensor, 1, 1]),
     )
-    grid_x = K.tile(
-        K.reshape(K.arange(0, stop=grid_w_tensor), [1, -1, 1, 1]),
-        K.stack([grid_h_tensor, 1, 1, 1]),
+    grid_x = ops.tile(
+        ops.reshape(arange_w, [1, -1, 1, 1]),
+        ops.stack([grid_h_tensor, 1, 1, 1]),
     )
-    grid = K.concatenate([grid_x, grid_y])
+    grid = ops.concatenate([grid_x, grid_y])
     # Get dtype from tensor attribute (works with KerasTensors)
     # Convert to string if it's a DType object
     if hasattr(feats, 'dtype'):
@@ -238,7 +241,8 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
         feats_dtype = 'float32'
     grid = K.cast(grid, feats_dtype)
 
-    feats = K.reshape(
+    # Use ops.reshape instead of K.reshape for KerasTensor compatibility
+    feats = ops.reshape(
         feats, [-1, grid_h_tensor, grid_w_tensor, num_anchors, num_classes + 5]
     )
 
@@ -298,13 +302,15 @@ def yolo_correct_boxes(box_xy, box_wh, input_shape, image_shape):
 
 def yolo_boxes_and_scores(feats, anchors, num_classes, input_shape, image_shape):
     """Process Conv layer output"""
+    from tensorflow.keras import ops
     box_xy, box_wh, box_confidence, box_class_probs = yolo_head(
         feats, anchors, num_classes, input_shape
     )
     boxes = yolo_correct_boxes(box_xy, box_wh, input_shape, image_shape)
-    boxes = K.reshape(boxes, [-1, 4])
+    # Use ops.reshape for KerasTensor compatibility
+    boxes = ops.reshape(boxes, [-1, 4])
     box_scores = box_confidence * box_class_probs
-    box_scores = K.reshape(box_scores, [-1, num_classes])
+    box_scores = ops.reshape(box_scores, [-1, num_classes])
     return boxes, box_scores
 
 
