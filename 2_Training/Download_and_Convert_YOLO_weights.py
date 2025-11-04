@@ -46,7 +46,11 @@ if __name__ == "__main__":
         # Original URL: https://pjreddie.com/media/files/yolov3-tiny.weights
         gdrive_id = "1mIEZthXBcEguMvuVAHKLXQX3mA1oZUuC"
 
-    if not os.path.isfile(os.path.join(download_folder, weights_file)):
+    weights_path = os.path.join(download_folder, weights_file)
+    h5_path = os.path.join(download_folder, h5_file)
+    
+    # Download weights if not present
+    if not os.path.isfile(weights_path):
         print(f"\nDownloading Raw {weights_file}\n")
         start = time.time()
         call_string = " ".join(
@@ -65,7 +69,16 @@ if __name__ == "__main__":
 
         end = time.time()
         print(f"Downloaded Raw {weights_file} in {end - start:.1f} seconds\n")
-
+    
+    # Convert weights to H5 if H5 file doesn't exist
+    if not os.path.isfile(h5_path):
+        print(f"\nConverting {weights_file} to {h5_file}\n")
         call_string = f"python convert.py {cfg_file} {weights_file} {h5_file}"
-
-        subprocess.call(call_string, shell=True, cwd=download_folder)
+        result = subprocess.call(call_string, shell=True, cwd=download_folder)
+        if result == 0:
+            print(f"\nSuccessfully converted {weights_file} to {h5_file}\n")
+        else:
+            print(f"\nError: Conversion failed with exit code {result}\n")
+            raise RuntimeError(f"Failed to convert {weights_file} to {h5_file}")
+    else:
+        print(f"\n{h5_file} already exists. Skipping conversion.\n")
