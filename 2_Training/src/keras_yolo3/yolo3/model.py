@@ -143,45 +143,68 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
 
     # Get grid_shape - handle KerasTensors during graph construction
     # Use shape attribute which is available on KerasTensors
+    from tensorflow.keras import ops
+    
     if hasattr(feats, 'shape') and feats.shape is not None and len(feats.shape) >= 3:
         # Try to get static shape first (works during graph construction)
         shape_list = feats.shape.as_list() if hasattr(feats.shape, 'as_list') else list(feats.shape)
-        if shape_list[1] is not None and shape_list[2] is not None:
-            # Static shape available
-            grid_shape = tf.constant([shape_list[1], shape_list[2]], dtype=tf.int32)
+        if shape_list[1] is not None and shape_list[2] is not None and isinstance(shape_list[1], int) and isinstance(shape_list[2], int):
+            # Static shape available - both are integers
+            grid_h = shape_list[1]
+            grid_w = shape_list[2]
+            grid_shape = tf.constant([grid_h, grid_w], dtype=tf.int32)
         else:
-            # Dynamic shape - need to use ops.shape which works with KerasTensors
-            from tensorflow.keras import ops
+            # Dynamic shape - use ops.shape which works with KerasTensors
             shape_tensor = ops.shape(feats)
-            grid_shape = shape_tensor[1:3]
+            grid_h = shape_tensor[1]
+            grid_w = shape_tensor[2]
+            grid_shape = tf.stack([grid_h, grid_w])
     else:
         # Fallback: compute from input_shape (approximate, will be corrected during execution)
         # For YOLOv3, grid sizes are input_shape / [32, 16, 8] for the 3 layers
-        # We use a placeholder that will be computed correctly during inference
         if isinstance(input_shape, tf.Tensor):
             # Use a reasonable default that will be refined during execution
             grid_shape = tf.cast(input_shape / 32, tf.int32)
+            grid_h = grid_shape[0]
+            grid_w = grid_shape[1]
         else:
             # Static computation
-            grid_shape = tf.constant([input_shape[0] // 32, input_shape[1] // 32], dtype=tf.int32)
+            grid_h = input_shape[0] // 32
+            grid_w = input_shape[1] // 32
+            grid_shape = tf.constant([grid_h, grid_w], dtype=tf.int32)
+    
+    # Extract grid dimensions for use in tile operations
+    # Ensure we use tensor operations, not Python lists with mixed types
+    if isinstance(grid_h, (int, np.integer)):
+        grid_h_tensor = tf.constant(grid_h, dtype=tf.int32)
+    else:
+        grid_h_tensor = tf.cast(grid_h, tf.int32)
+    
+    if isinstance(grid_w, (int, np.integer)):
+        grid_w_tensor = tf.constant(grid_w, dtype=tf.int32)
+    else:
+        grid_w_tensor = tf.cast(grid_w, tf.int32)
+    
     grid_y = K.tile(
-        K.reshape(K.arange(0, stop=grid_shape[0]), [-1, 1, 1, 1]),
-        [1, grid_shape[1], 1, 1],
+        K.reshape(K.arange(0, stop=grid_h_tensor), [-1, 1, 1, 1]),
+        K.stack([1, grid_w_tensor, 1, 1]),
     )
     grid_x = K.tile(
-        K.reshape(K.arange(0, stop=grid_shape[1]), [1, -1, 1, 1]),
-        [grid_shape[0], 1, 1, 1],
+        K.reshape(K.arange(0, stop=grid_w_tensor), [1, -1, 1, 1]),
+        K.stack([grid_h_tensor, 1, 1, 1]),
     )
     grid = K.concatenate([grid_x, grid_y])
     grid = K.cast(grid, K.dtype(feats))
 
     feats = K.reshape(
-        feats, [-1, grid_shape[0], grid_shape[1], num_anchors, num_classes + 5]
+        feats, [-1, grid_h_tensor, grid_w_tensor, num_anchors, num_classes + 5]
     )
 
     # Adjust preditions to each spatial grid point and anchor size.
+    # Reverse grid_shape: [w, h] instead of [h, w]
+    grid_shape_reversed = tf.stack([grid_w_tensor, grid_h_tensor])
     box_xy = (K.sigmoid(feats[..., :2]) + grid) / K.cast(
-        grid_shape[::-1], K.dtype(feats)
+        grid_shape_reversed, K.dtype(feats)
     )
     box_wh = (
         K.exp(feats[..., 2:4])
