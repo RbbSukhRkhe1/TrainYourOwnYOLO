@@ -251,14 +251,8 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
         # Use dynamic shape - compute grid dimensions from feats tensor shape
         # Get the actual grid dimensions from feats shape (works during execution)
         feats_shape = ops.shape(feats)
-        # Use -1 for batch (auto-infer), but get actual grid dimensions
-        # Note: ops.reshape doesn't support -1 in tensor shapes, so we need to use a different approach
-        # We'll use the grid_h_tensor and grid_w_tensor we already computed
-        # But we need to ensure they match the actual feats shape
-        # For now, use the grid dimensions we computed earlier (they should be correct)
-        # The issue is that ops.reshape doesn't accept -1 in tensor shapes
-        # So we need to compute the full shape including batch
-        batch_size = ops.gather(feats_shape, 0)
+        # Use tf.gather (not ops.gather) to extract dimensions from shape tensor
+        batch_size = tf.gather(feats_shape, 0)
         # Use the computed grid tensors (they should match feats shape dimensions)
         num_anchors_tensor = tf.constant(num_anchors, dtype=tf.int32)
         num_classes_tensor = tf.constant(num_classes + 5, dtype=tf.int32)
