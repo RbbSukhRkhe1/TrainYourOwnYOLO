@@ -239,7 +239,8 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
             feats_dtype = str(feats_dtype)
     else:
         feats_dtype = 'float32'
-    grid = K.cast(grid, feats_dtype)
+    # Use ops operations for KerasTensor compatibility
+    grid = ops.cast(grid, feats_dtype)
 
     # Reshape feats: use static shape when available, otherwise use dynamic shape
     # If grid_h and grid_w are static integers, use a list shape
@@ -258,7 +259,8 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     grid_shape_reversed = tf.stack([grid_w_tensor, grid_h_tensor])
     # Get dtype from tensor attribute (works with KerasTensors)
     # Reuse the dtype we already computed above
-    box_xy = (K.sigmoid(feats[..., :2]) + grid) / K.cast(
+    # Use ops operations for KerasTensor compatibility
+    box_xy = (ops.sigmoid(feats[..., :2]) + grid) / ops.cast(
         grid_shape_reversed, feats_dtype
     )
     # Handle input_shape reversal safely
@@ -267,12 +269,12 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     else:
         input_shape_reversed = input_shape[::-1]
     box_wh = (
-        K.exp(feats[..., 2:4])
+        ops.exp(feats[..., 2:4])
         * anchors_tensor
-        / K.cast(input_shape_reversed, feats_dtype)
+        / ops.cast(input_shape_reversed, feats_dtype)
     )
-    box_confidence = K.sigmoid(feats[..., 4:5])
-    box_class_probs = K.sigmoid(feats[..., 5:])
+    box_confidence = ops.sigmoid(feats[..., 4:5])
+    box_class_probs = ops.sigmoid(feats[..., 5:])
 
     if calc_loss == True:
         return grid, feats, box_xy, box_wh
