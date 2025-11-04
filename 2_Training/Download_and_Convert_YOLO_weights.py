@@ -72,13 +72,34 @@ if __name__ == "__main__":
     
     # Convert weights to H5 if H5 file doesn't exist
     if not os.path.isfile(h5_path):
+        if not os.path.isfile(weights_path):
+            raise FileNotFoundError(
+                f"Weights file {weights_file} not found at {weights_path}. "
+                f"Please run the download script first."
+            )
+        
         print(f"\nConverting {weights_file} to {h5_file}\n")
+        print(f"Weights file: {weights_path}")
+        print(f"Output file: {h5_path}")
+        print(f"Working directory: {download_folder}\n")
+        
         call_string = f"python convert.py {cfg_file} {weights_file} {h5_file}"
         result = subprocess.call(call_string, shell=True, cwd=download_folder)
-        if result == 0:
-            print(f"\nSuccessfully converted {weights_file} to {h5_file}\n")
+        
+        # Verify conversion was successful
+        if result == 0 and os.path.isfile(h5_path):
+            file_size = os.path.getsize(h5_path) / (1024 * 1024)  # Size in MB
+            print(f"\n✓ Successfully converted {weights_file} to {h5_file}")
+            print(f"  File size: {file_size:.2f} MB")
+            print(f"  Location: {h5_path}\n")
         else:
-            print(f"\nError: Conversion failed with exit code {result}\n")
+            error_msg = f"Conversion failed with exit code {result}"
+            if not os.path.isfile(h5_path):
+                error_msg += f" - {h5_file} was not created"
+            print(f"\n✗ Error: {error_msg}\n")
             raise RuntimeError(f"Failed to convert {weights_file} to {h5_file}")
     else:
-        print(f"\n{h5_file} already exists. Skipping conversion.\n")
+        file_size = os.path.getsize(h5_path) / (1024 * 1024)  # Size in MB
+        print(f"\n✓ {h5_file} already exists at {h5_path}")
+        print(f"  File size: {file_size:.2f} MB")
+        print(f"  Skipping conversion.\n")
