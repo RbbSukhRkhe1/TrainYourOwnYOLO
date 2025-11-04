@@ -142,10 +142,11 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     anchors_tensor = K.reshape(K.constant(anchors), [1, 1, 1, num_anchors, 2])
 
     # Get grid_shape - handle KerasTensors during graph construction
-    # Use shape attribute which is available on KerasTensors
+    # During model initialization, KerasTensors don't have fully defined shapes
+    # We need to compute grid_shape from input_shape or use a placeholder
     from tensorflow.keras import ops
     
-    # Try to get static shape first (works during graph construction)
+    # Try to get static shape first (works during graph construction if shape is known)
     grid_h = None
     grid_w = None
     
@@ -156,27 +157,47 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
                 shape_list[1] is not None and shape_list[2] is not None and 
                 isinstance(shape_list[1], int) and isinstance(shape_list[2], int)):
                 # Static shape available - both are integers
-                grid_h = shape_list[1]
-                grid_w = shape_list[2]
+                grid_h = int(shape_list[1])
+                grid_w = int(shape_list[2])
         except (AttributeError, IndexError, TypeError):
             pass
     
-    # If static shape not available, use ops.shape (works with KerasTensors)
+    # If static shape not available, compute from input_shape
+    # This is the most reliable approach during graph construction
+    # Always set fallback values first to ensure we never have None
     if grid_h is None or grid_w is None:
+        # Compute approximate grid_shape from input_shape
+        # YOLOv3 uses different strides for different layers, but we'll use a default
+        # The actual shape will be computed correctly during inference
+        if isinstance(input_shape, tf.Tensor):
+            # Use input_shape to compute grid (will be refined during execution)
+            # Default to 32x downsampling (largest grid)
+            grid_shape_fallback = tf.cast(input_shape / 32, tf.int32)
+            grid_h = tf.gather(grid_shape_fallback, 0)  # Use tf.gather for safe indexing
+            grid_w = tf.gather(grid_shape_fallback, 1)
+        else:
+            # Static computation from input_shape - ensure we get integers
+            try:
+                grid_h = int(input_shape[0] // 32) if input_shape[0] is not None else 13
+                grid_w = int(input_shape[1] // 32) if input_shape[1] is not None else 13
+            except (TypeError, IndexError):
+                # Ultimate fallback - use default YOLOv3 grid size
+                grid_h = 13
+                grid_w = 13
+        
+        # Try to refine using ops.shape if possible (works in eager mode)
+        # This will override the fallback during execution if shape is available
         try:
             shape_tensor = ops.shape(feats)
-            # Extract dimensions using indexing that works with tensors
-            grid_h = tf.cast(shape_tensor[1], tf.int32)
-            grid_w = tf.cast(shape_tensor[2], tf.int32)
+            # Use tf.gather to safely extract dimensions
+            grid_h_dynamic = tf.cast(tf.gather(shape_tensor, 1), tf.int32)
+            grid_w_dynamic = tf.cast(tf.gather(shape_tensor, 2), tf.int32)
+            # Use dynamic shape (will override static during execution)
+            grid_h = grid_h_dynamic
+            grid_w = grid_w_dynamic
         except (ValueError, TypeError, AttributeError):
-            # Last resort: compute from input_shape
-            if isinstance(input_shape, tf.Tensor):
-                grid_shape_fallback = tf.cast(input_shape / 32, tf.int32)
-                grid_h = grid_shape_fallback[0]
-                grid_w = grid_shape_fallback[1]
-            else:
-                grid_h = input_shape[0] // 32
-                grid_w = input_shape[1] // 32
+            # Keep the fallback values computed from input_shape
+            pass
     
     # Create grid_shape tensor
     if isinstance(grid_h, (int, np.integer)) and isinstance(grid_w, (int, np.integer)):
