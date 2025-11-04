@@ -241,10 +241,19 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
         feats_dtype = 'float32'
     grid = K.cast(grid, feats_dtype)
 
-    # Use ops.reshape instead of K.reshape for KerasTensor compatibility
-    feats = ops.reshape(
-        feats, [-1, grid_h_tensor, grid_w_tensor, num_anchors, num_classes + 5]
-    )
+    # Reshape feats: use static shape when available, otherwise use dynamic shape
+    # If grid_h and grid_w are static integers, use a list shape
+    if isinstance(grid_h, (int, np.integer)) and isinstance(grid_w, (int, np.integer)):
+        # Use static shape - ops.reshape works with list of ints
+        feats = ops.reshape(feats, [-1, int(grid_h), int(grid_w), num_anchors, num_classes + 5])
+    else:
+        # Use dynamic shape - construct tensor shape with all values as tensors
+        feats_shape = ops.shape(feats)
+        batch_size = tf.gather(feats_shape, 0)
+        num_anchors_tensor = tf.constant(num_anchors, dtype=tf.int32)
+        num_classes_tensor = tf.constant(num_classes + 5, dtype=tf.int32)
+        reshape_shape = ops.stack([batch_size, grid_h_tensor, grid_w_tensor, num_anchors_tensor, num_classes_tensor])
+        feats = ops.reshape(feats, reshape_shape)
 
     # Adjust preditions to each spatial grid point and anchor size.
     # Reverse grid_shape: [w, h] instead of [h, w]
