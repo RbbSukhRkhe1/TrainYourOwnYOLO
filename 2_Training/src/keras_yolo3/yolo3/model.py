@@ -228,7 +228,23 @@ def yolo_eval(
     anchor_mask = (
         [[6, 7, 8], [3, 4, 5], [0, 1, 2]] if num_layers == 3 else [[3, 4, 5], [1, 2, 3]]
     )  # default setting
-    input_shape = K.shape(yolo_outputs[0])[1:3] * 32
+    # During model initialization, yolo_outputs are KerasTensors, so we can't use K.shape()
+    # Check if we can safely get shape, otherwise use image_shape as input_shape
+    # input_shape is the model input size (e.g., [416, 416]), which is 32x the output size
+    if isinstance(image_shape, tf.Tensor) and image_shape.shape.ndims > 0:
+        # image_shape is provided as a tensor (e.g., during initialization)
+        input_shape = tf.cast(image_shape, tf.float32)
+    elif isinstance(image_shape, (list, tuple)):
+        # image_shape is provided as a list/tuple
+        input_shape = tf.constant([float(image_shape[0]), float(image_shape[1])], dtype=tf.float32)
+    else:
+        # Try to compute from output shape (works in eager execution)
+        try:
+            output_shape = K.shape(yolo_outputs[0])
+            input_shape = output_shape[1:3] * 32
+        except (ValueError, TypeError, AttributeError):
+            # Fallback to default model input size
+            input_shape = tf.constant([416.0, 416.0], dtype=tf.float32)
     boxes = []
     box_scores = []
     for l in range(num_layers):
