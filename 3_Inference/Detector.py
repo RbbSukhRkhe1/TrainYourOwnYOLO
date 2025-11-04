@@ -44,7 +44,10 @@ detection_results_file = os.path.join(detection_results_folder, "Detection_Resul
 
 model_folder = os.path.join(data_folder, "Model_Weights")
 
-model_weights = os.path.join(model_folder, "trained_weights_final.h5")
+# Check for .weights.h5 first (TensorFlow 2.10+ format), fallback to .h5 for backward compatibility
+model_weights = os.path.join(model_folder, "trained_weights_final.weights.h5")
+if not os.path.isfile(model_weights):
+    model_weights = os.path.join(model_folder, "trained_weights_final.h5")
 model_classes = os.path.join(model_folder, "data_classes.txt")
 
 anchors_path = os.path.join(src_path, "keras_yolo3", "model_data", "yolo_anchors.txt")

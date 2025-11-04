@@ -268,7 +268,7 @@ if __name__ == "__main__":
         initial_epoch=0,
         callbacks=frozen_callbacks,
     )
-    model.save_weights(os.path.join(log_dir, "trained_weights_stage_1.h5"))
+    model.save_weights(os.path.join(log_dir, "trained_weights_stage_1.weights.h5"))
 
     # Unfreeze and continue training, to fine-tune.
     # Train longer if the result is unsatisfactory.
@@ -305,4 +305,4 @@ if __name__ == "__main__":
         initial_epoch=epoch1,
         callbacks=full_callbacks,
     )
-    model.save_weights(os.path.join(log_dir, "trained_weights_final.h5"))
+    model.save_weights(os.path.join(log_dir, "trained_weights_final.weights.h5"))
