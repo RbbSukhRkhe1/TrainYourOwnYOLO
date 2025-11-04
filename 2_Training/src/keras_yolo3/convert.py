@@ -101,6 +101,9 @@ def _main(args):
     input_layer = Input(shape=(None, None, 3))
     prev_layer = input_layer
     all_layers = []
+    
+    # Store layer references and their weights for setting after model creation
+    layer_weights = {}  # {layer_index: (layer_instance, weights_list)}
 
     weight_decay = (
         float(cfg_parser["net_0"]["decay"])
@@ -109,6 +112,7 @@ def _main(args):
     )
     count = 0
     out_index = []
+    layer_counter = 0
     for section in cfg_parser.sections():
         print("Parsing section {}".format(section))
         if section.startswith("convolutional"):
@@ -185,21 +189,30 @@ def _main(args):
             if stride > 1:
                 # Darknet uses left and top padding instead of 'same' mode
                 prev_layer = ZeroPadding2D(((1, 0), (1, 0)))(prev_layer)
-            conv_layer = (
-                Conv2D(
-                    filters,
-                    (size, size),
-                    strides=(stride, stride),
-                    kernel_regularizer=l2(weight_decay),
-                    use_bias=not batch_normalize,
-                    weights=conv_weights,
-                    activation=act_fn,
-                    padding=padding,
-                )
-            )(prev_layer)
+            
+            # Create Conv2D layer without weights (TensorFlow 2.x doesn't allow weights in constructor)
+            conv_layer_obj = Conv2D(
+                filters,
+                (size, size),
+                strides=(stride, stride),
+                kernel_regularizer=l2(weight_decay),
+                use_bias=not batch_normalize,
+                activation=act_fn,
+                padding=padding,
+            )
+            conv_layer = conv_layer_obj(prev_layer)
+            
+            # Store layer and weights to set after model is built
+            layer_weights[layer_counter] = (conv_layer_obj, conv_weights)
+            layer_counter += 1
 
             if batch_normalize:
-                conv_layer = (BatchNormalization(weights=bn_weight_list))(conv_layer)
+                bn_layer_obj = BatchNormalization()
+                conv_layer = bn_layer_obj(conv_layer)
+                # Store BatchNormalization layer and weights
+                layer_weights[layer_counter] = (bn_layer_obj, bn_weight_list)
+                layer_counter += 1
+            
             prev_layer = conv_layer
 
             if activation == "linear":
@@ -260,6 +273,15 @@ def _main(args):
     if len(out_index) == 0:
         out_index.append(len(all_layers) - 1)
     model = Model(inputs=input_layer, outputs=[all_layers[i] for i in out_index])
+    
+    # Set weights on all layers (TensorFlow 2.x requires set_weights after model is built)
+    print("Setting layer weights...")
+    for layer_idx, (layer_obj, weights_list) in layer_weights.items():
+        try:
+            layer_obj.set_weights(weights_list)
+        except Exception as e:
+            print(f"Warning: Could not set weights for layer {layer_idx}: {e}")
+    
     print(model.summary())
     if args.weights_only:
         model.save_weights("{}".format(output_path))
