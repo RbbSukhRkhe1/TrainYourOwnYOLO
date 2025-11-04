@@ -251,17 +251,21 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     else:
         # Use dynamic shape - when grid_h/grid_w are tensors, we need to defer reshape until execution
         # Use a Lambda layer to perform the reshape during execution with actual tensor values
-        # Compute grid dimensions from input tensor inside Lambda to ensure they match
+        # CRITICAL: The grid was computed using grid_h_tensor and grid_w_tensor from ops.shape(feats)
+        # We must use the SAME dimensions in the Lambda to ensure broadcasting works
+        # Capture grid_h_tensor and grid_w_tensor in the closure to use the exact same values
+        gh_tensor = grid_h_tensor  # Capture for Lambda closure
+        gw_tensor = grid_w_tensor  # Capture for Lambda closure
+        
         def dynamic_reshape(x):
-            """Reshape feats using grid dimensions computed from input tensor."""
+            """Reshape feats using the exact same grid dimensions used for grid computation."""
             feats_shape = tf.shape(x)
             batch_size = feats_shape[0]
-            # Get grid dimensions from the input tensor (same as used for grid computation)
-            grid_h_val = feats_shape[1]  # Height dimension
-            grid_w_val = feats_shape[2]  # Width dimension
+            # Use the captured grid dimensions (same as used for grid computation)
+            # This ensures the reshaped feats matches the grid dimensions exactly
             num_anchors_tensor = tf.constant(num_anchors, dtype=tf.int32)
             num_classes_tensor = tf.constant(num_classes + 5, dtype=tf.int32)
-            reshape_shape = tf.stack([batch_size, grid_h_val, grid_w_val, num_anchors_tensor, num_classes_tensor])
+            reshape_shape = tf.stack([batch_size, gh_tensor, gw_tensor, num_anchors_tensor, num_classes_tensor])
             return tf.reshape(x, reshape_shape)
         
         feats = Lambda(dynamic_reshape)(feats)
