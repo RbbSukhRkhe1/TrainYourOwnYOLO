@@ -313,12 +313,20 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     return box_xy, box_wh, box_confidence, box_class_probs
 
 
+from tensorflow.keras import backend as K
+from tensorflow.keras import ops  # <-- NEW: Use keras.ops
+import tensorflow as tf
+
 def yolo_correct_boxes(box_xy, box_wh, input_shape, image_shape):
-    """Get corrected boxes"""
+    """Get corrected boxes - Keras 3 compatible"""
     box_yx = box_xy[..., ::-1]
     box_hw = box_wh[..., ::-1]
-    input_shape = K.cast(input_shape, K.dtype(box_yx))
-    image_shape = K.cast(image_shape, K.dtype(box_yx))
+
+    # Safe dtype
+    dtype = box_yx.dtype if hasattr(box_yx, 'dtype') else K.floatx()
+    input_shape = K.cast(input_shape, dtype)
+    image_shape = K.cast(image_shape, dtype)
+
     new_shape = K.round(image_shape * K.min(input_shape / image_shape))
     offset = (input_shape - new_shape) / 2.0 / input_shape
     scale = input_shape / new_shape
@@ -327,18 +335,23 @@ def yolo_correct_boxes(box_xy, box_wh, input_shape, image_shape):
 
     box_mins = box_yx - (box_hw / 2.0)
     box_maxes = box_yx + (box_hw / 2.0)
-    boxes = K.concatenate(
+
+    # Use ops.concatenate
+    boxes = ops.concatenate(
         [
             box_mins[..., 0:1],  # y_min
             box_mins[..., 1:2],  # x_min
-            box_maxes[..., 0:1],  # y_max
-            box_maxes[..., 1:2],  # x_max
-        ]
+            box_maxes[..., 0:1], # y_max
+            box_maxes[..., 1:2], # x_max
+        ],
+        axis=-1
     )
 
-    # Scale boxes back to original image shape.
-    boxes *= K.concatenate([image_shape, image_shape])
-    return boxes
+    # Use ops.repeat
+    image_shape_repeated = ops.repeat(image_shape, 2)
+    boxes *= image_shape_repeated
+
+    return boxes    
 
 
 def yolo_boxes_and_scores(feats, anchors, num_classes, input_shape, image_shape):
@@ -355,6 +368,48 @@ def yolo_boxes_and_scores(feats, anchors, num_classes, input_shape, image_shape)
     return boxes, box_scores
 
 
+from tensorflow.keras import ops
+from tensorflow.keras import backend as K
+import tensorflow as tf
+
+
+from tensorflow.keras import ops, backend as K
+from tensorflow.keras.layers import Lambda
+import tensorflow as tf
+
+
+from tensorflow.keras import ops, backend as K
+from tensorflow.keras.layers import Lambda
+import tensorflow as tf
+
+
+from tensorflow.keras import ops, backend as K
+from tensorflow.keras.layers import Lambda
+import tensorflow as tf
+
+
+from tensorflow.keras import ops, backend as K
+import tensorflow as tf
+
+
+from tensorflow.keras import ops, backend as K
+import tensorflow as tf
+
+
+from tensorflow.keras import ops, backend as K
+import tensorflow as tf
+
+
+from tensorflow.keras import ops, backend as K
+from tensorflow.keras.layers import Lambda
+import tensorflow as tf
+
+
+from tensorflow.keras import ops, backend as K
+from tensorflow.keras.layers import Lambda
+import tensorflow as tf
+
+
 def yolo_eval(
     yolo_outputs,
     anchors,
@@ -368,24 +423,20 @@ def yolo_eval(
     num_layers = len(yolo_outputs)
     anchor_mask = (
         [[6, 7, 8], [3, 4, 5], [0, 1, 2]] if num_layers == 3 else [[3, 4, 5], [1, 2, 3]]
-    )  # default setting
-    # During model initialization, yolo_outputs are KerasTensors, so we can't use K.shape()
-    # Check if we can safely get shape, otherwise use image_shape as input_shape
-    # input_shape is the model input size (e.g., [416, 416]), which is 32x the output size
-    if isinstance(image_shape, tf.Tensor) and image_shape.shape.ndims > 0:
-        # image_shape is provided as a tensor (e.g., during initialization)
-        input_shape = tf.cast(image_shape, tf.float32)
+    )
+
+    # Safe input_shape
+    if isinstance(image_shape, tf.Tensor):
+        input_shape = ops.cast(image_shape, "float32")
     elif isinstance(image_shape, (list, tuple)):
-        # image_shape is provided as a list/tuple
-        input_shape = tf.constant([float(image_shape[0]), float(image_shape[1])], dtype=tf.float32)
+        input_shape = ops.convert_to_tensor([float(image_shape[0]), float(image_shape[1])])
     else:
-        # Try to compute from output shape (works in eager execution)
         try:
-            output_shape = K.shape(yolo_outputs[0])
-            input_shape = output_shape[1:3] * 32
-        except (ValueError, TypeError, AttributeError):
-            # Fallback to default model input size
-            input_shape = tf.constant([416.0, 416.0], dtype=tf.float32)
+            output_shape = ops.shape(yolo_outputs[0])
+            input_shape = ops.cast(output_shape[1:3], "float32") * 32
+        except:
+            input_shape = ops.convert_to_tensor([416.0, 416.0])
+
     boxes = []
     box_scores = []
     for l in range(num_layers):
@@ -398,32 +449,49 @@ def yolo_eval(
         )
         boxes.append(_boxes)
         box_scores.append(_box_scores)
-    boxes = K.concatenate(boxes, axis=0)
-    box_scores = K.concatenate(box_scores, axis=0)
+
+    boxes = ops.concatenate(boxes, axis=0)
+    box_scores = ops.concatenate(box_scores, axis=0)
 
     mask = box_scores >= score_threshold
-    max_boxes_tensor = K.constant(max_boxes, dtype="int32")
+    max_boxes_tensor = ops.convert_to_tensor(max_boxes, dtype="int32")
+
+    # === Lambda layer with output_shape ===
+    def nms_per_class(inputs):
+        boxes, box_scores, mask, c = inputs
+        mask_c = tf.gather(mask, c, axis=1)
+        scores_c = tf.gather(box_scores, c, axis=1)
+        boxes_c = tf.boolean_mask(boxes, mask_c)
+        scores_c = tf.boolean_mask(scores_c, mask_c)
+        nms_idx = tf.image.non_max_suppression(
+            boxes_c, scores_c, max_boxes_tensor, iou_threshold=iou_threshold
+        )
+        boxes_c = tf.gather(boxes_c, nms_idx)
+        scores_c = tf.gather(scores_c, nms_idx)
+        classes_c = tf.fill(tf.shape(scores_c), c)
+        return boxes_c, scores_c, classes_c
+
+    nms_layer = Lambda(
+        nms_per_class,
+        output_shape=((None, 4), (None,), (None,))  # boxes, scores, classes
+    )
+    # =====================================
+
     boxes_ = []
     scores_ = []
     classes_ = []
     for c in range(num_classes):
-        # TODO: use keras backend instead of tf.
-        class_boxes = tf.boolean_mask(boxes, mask[:, c])
-        class_box_scores = tf.boolean_mask(box_scores[:, c], mask[:, c])
-        nms_index = tf.image.non_max_suppression(
-            class_boxes, class_box_scores, max_boxes_tensor, iou_threshold=iou_threshold
-        )
-        class_boxes = K.gather(class_boxes, nms_index)
-        class_box_scores = K.gather(class_box_scores, nms_index)
-        classes = K.ones_like(class_box_scores, "int32") * c
-        boxes_.append(class_boxes)
-        scores_.append(class_box_scores)
-        classes_.append(classes)
-    boxes_ = K.concatenate(boxes_, axis=0)
-    scores_ = K.concatenate(scores_, axis=0)
-    classes_ = K.concatenate(classes_, axis=0)
+        result = nms_layer([boxes, box_scores, mask, tf.constant(c, dtype=tf.int32)])
+        boxes_.append(result[0])
+        scores_.append(result[1])
+        classes_.append(result[2])
+
+    boxes_ = ops.concatenate(boxes_, axis=0)
+    scores_ = ops.concatenate(scores_, axis=0)
+    classes_ = ops.concatenate(classes_, axis=0)
 
     return boxes_, scores_, classes_
+
 
 
 def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
