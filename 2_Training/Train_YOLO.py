@@ -306,3 +306,4 @@ if __name__ == "__main__":
         callbacks=full_callbacks,
     )
     model.save_weights(os.path.join(log_dir, "trained_weights_final.weights.h5"))
+    model.save(os.path.join(log_dir, "trained_model_final.keras"))
