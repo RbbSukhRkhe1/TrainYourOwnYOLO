@@ -130,7 +130,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--random_seed",
-        type=float,
+        type=int,
         default=None,
         help="Random seed value to make script deterministic. Default is 'None', i.e. non-deterministic.",
     )
@@ -170,7 +170,8 @@ if __name__ == "__main__":
     except (ImportError, AttributeError):
         _has_wandb = False
 
-    np.random.seed(FLAGS.random_seed)
+    if FLAGS.random_seed is not None:
+        np.random.seed(int(FLAGS.random_seed))
 
     log_dir = FLAGS.log_dir
 
@@ -194,14 +195,29 @@ if __name__ == "__main__":
     input_shape = (416, 416)  # multiple of 32, height, width
     epoch1, epoch2 = FLAGS.epochs, FLAGS.epochs
 
+    # Check if training from scratch (empty weights path)
+    load_pretrained = True
+    if not weights_path or weights_path.strip() == "" or not os.path.isfile(weights_path):
+        load_pretrained = False
+        print("Training from scratch (no pretrained weights)")
+        freeze_body = 0  # Don't freeze any layers when training from scratch
+    else:
+        freeze_body = 2  # Freeze most layers when using pretrained weights
+
     is_tiny_version = len(anchors) == 6  # default setting
     if FLAGS.is_tiny:
         model = create_tiny_model(
-            input_shape, anchors, num_classes, freeze_body=2, weights_path=weights_path
+            input_shape, anchors, num_classes, 
+            load_pretrained=load_pretrained, 
+            freeze_body=freeze_body, 
+            weights_path=weights_path
         )
     else:
         model = create_model(
-            input_shape, anchors, num_classes, freeze_body=2, weights_path=weights_path
+            input_shape, anchors, num_classes, 
+            load_pretrained=load_pretrained, 
+            freeze_body=freeze_body, 
+            weights_path=weights_path
         )  # make sure you know what you freeze
 
     log_dir_time = os.path.join(log_dir, "{}".format(int(time())))
