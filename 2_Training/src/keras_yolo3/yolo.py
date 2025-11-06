@@ -225,6 +225,10 @@ class YOLO(object):
             bottom = min(image.size[1], np.floor(bottom + 0.5).astype("int32"))
             right = min(image.size[0], np.floor(right + 0.5).astype("int32"))
 
+            # Validate bounding box coordinates: ensure left < right and top < bottom
+            # Skip invalid boxes (can happen with coordinate conversion issues)
+            if top >= bottom or left >= right:
+                continue
             # image was expanded to model_image_size: make sure it did not pick
             # up any box outside of original image (run into this bug when
             # lowering confidence threshold to 0.01)
@@ -298,6 +302,8 @@ def detect_video(yolo, video_path, output_path=""):
         image = Image.fromarray(frame)
         out_pred, image = yolo.detect_image(image, show_stats=False)
         result = np.asarray(image)
+        # Make a writable copy to avoid readonly array error with cv2.putText
+        result = result.copy()
         curr_time = timer()
         exec_time = curr_time - prev_time
         prev_time = curr_time
