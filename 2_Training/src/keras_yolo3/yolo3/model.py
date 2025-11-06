@@ -229,7 +229,8 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
         ops.reshape(arange_w, [1, -1, 1, 1]),
         ops.stack([grid_h_tensor, 1, 1, 1]),
     )
-    grid = ops.concatenate([grid_x, grid_y])
+    # Concatenate along the last dimension to create [grid_h, grid_w, 1, 2]
+    grid = ops.concatenate([grid_x, grid_y], axis=-1)
     # Get dtype from tensor attribute (works with KerasTensors)
     # Convert to string if it's a DType object
     if hasattr(feats, 'dtype'):
@@ -242,6 +243,21 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
         feats_dtype = 'float32'
     # Use ops operations for KerasTensor compatibility
     grid = ops.cast(grid, feats_dtype)
+    # Reshape grid to [1, grid_h, grid_w, 1, 2] for proper broadcasting with [batch, grid_h, grid_w, num_anchors, 2]
+    # Handle both static and dynamic shapes
+    if isinstance(grid_h, (int, np.integer)) and isinstance(grid_w, (int, np.integer)):
+        grid = ops.reshape(grid, [1, int(grid_h), int(grid_w), 1, 2])
+    else:
+        # Use Lambda for dynamic reshape when dimensions are tensors (similar to feats reshape)
+        def reshape_grid(x):
+            """Reshape grid using grid dimensions computed from input tensor."""
+            # x has shape [grid_h, grid_w, 1, 2], extract dimensions and add batch dimension
+            grid_shape_tf = tf.shape(x)
+            grid_h_val = grid_shape_tf[0]
+            grid_w_val = grid_shape_tf[1]
+            grid_shape = tf.stack([1, grid_h_val, grid_w_val, 1, 2])
+            return tf.reshape(x, grid_shape)
+        grid = Lambda(reshape_grid)(grid)
 
     # Reshape feats: use static shape when available, otherwise compute dynamically
     # If grid_h and grid_w are static integers, use a list shape
